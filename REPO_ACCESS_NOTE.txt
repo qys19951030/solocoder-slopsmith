@@ -1,0 +1,6 @@
+Source access note for 2026-06-18:
+
+- The user provided https://github.com/slopsmith/slopsmith.
+- On this machine, fork, git clone, and codeload zip all returned 404 from GitHub.
+- Project analysis for R1 was prepared from GitHub web-readable pages and search-indexed issue metadata instead of a local clone.
+- Before Trae execution, verify whether the repo has moved, needs different credentials, or must be mirrored locally through another path.
