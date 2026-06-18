@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, cleanup, act } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, within, cleanup, act, waitFor } from '@testing-library/react';
 import { useLibraryStore } from '../src/store/useLibraryStore';
 import { TreeView } from '../src/components/TreeView';
 import { ListView } from '../src/components/ListView';
 import { SettingsPanel } from '../src/components/SettingsPanel';
 import { SongDetail } from '../src/components/SongDetail';
+import App from '../src/App';
 import type { Song } from '../src/types';
 
 const externalSongs: Song[] = [
@@ -450,5 +451,218 @@ describe('component integration with external data', () => {
         expect(groupedNodeIds.has(flatId)).toBe(false);
       }
     });
+  });
+});
+
+describe('App entry - unified loader integration', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useLibraryStore.setState({
+      songs: [],
+      settings: {
+        viewMode: 'tree',
+        sortField: 'title',
+        sortDirection: 'asc',
+        ignoreAlbumGrouping: false,
+      },
+      searchQuery: '',
+      expandedNodes: new Set<string>(),
+    });
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const appTestSongs: Song[] = [
+    { id: 'app1', title: 'App Test Song 1', artist: 'App Artist A', album: 'App Album X', trackNumber: 1, duration: 100, genre: 'Rock', year: 2020 },
+    { id: 'app2', title: 'App Test Song 2', artist: 'App Artist A', album: 'App Album X', trackNumber: 2, duration: 200, genre: 'Rock', year: 2020 },
+    { id: 'app3', title: 'App Test Song 3', artist: 'App Artist B', album: 'App Album Y', trackNumber: 1, duration: 150, genre: 'Pop', year: 2021 },
+  ];
+
+  it('should load data via unified loader (not direct sampleSongs import)', async () => {
+    const customSource = vi.fn(() => appTestSongs);
+
+    render(<App dataSource={customSource} />);
+    expect(screen.getByText('加载中...')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    }, { timeout: 2000 });
+
+    expect(customSource).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/共 3 首歌曲/)).toBeInTheDocument();
+    expect(screen.getByText(/2 位艺术家/)).toBeInTheDocument();
+  });
+
+  it('fallback data (no dataSource prop) drives tree, list and detail correctly', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    }, { timeout: 2000 });
+
+    const headerStats = screen.getByText(/共 \d+ 首歌曲/);
+    expect(headerStats).toBeInTheDocument();
+    expect(headerStats.closest('div')).toHaveTextContent(/位艺术家/);
+
+    const treeView = document.querySelector('[data-testid^="tree-node-artist:"]');
+    expect(treeView).toBeTruthy();
+
+    act(() => {
+      useLibraryStore.getState().setViewMode('list');
+    });
+
+    await waitFor(() => {
+      const listRow = document.querySelector('[data-testid^="list-song-"]');
+      expect(listRow).toBeTruthy();
+    });
+  });
+
+  it('injected external data drives tree, list and detail correctly', async () => {
+    render(<App dataSource={() => appTestSongs} />);
+    await waitFor(() => {
+      expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    }, { timeout: 2000 });
+
+    expect(screen.getByText(/共 3 首歌曲/)).toBeInTheDocument();
+
+    const artistA = screen.getByTestId('tree-node-artist:App Artist A');
+    expect(artistA).toBeInTheDocument();
+    fireEvent.click(within(artistA).getByText('App Artist A'));
+
+    const albumX = screen.getByTestId('tree-node-album:App Artist A/App Album X');
+    expect(albumX).toBeInTheDocument();
+    fireEvent.click(within(albumX).getByText('App Album X'));
+
+    const songNode = screen.getByTestId('tree-node-song:App Artist A/App Album X/app1');
+    expect(songNode).toBeInTheDocument();
+    fireEvent.click(within(songNode).getByText('App Test Song 1'));
+
+    const albumMatches = screen.getAllByText('App Album X');
+    expect(albumMatches.length).toBeGreaterThanOrEqual(1);
+    const artistMatches = screen.getAllByText('App Artist A');
+    expect(artistMatches.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('歌曲详情')).toBeInTheDocument();
+
+    act(() => {
+      useLibraryStore.getState().setViewMode('list');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('list-song-app1')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('list-song-app1')).toHaveTextContent('App Album X');
+  });
+
+  it('should handle async external data source correctly', async () => {
+    const asyncSource = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return appTestSongs;
+    });
+
+    render(<App dataSource={asyncSource} />);
+    expect(screen.getByText('加载中...')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    }, { timeout: 2000 });
+
+    expect(asyncSource).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/共 3 首歌曲/)).toBeInTheDocument();
+  });
+
+  it('should display error state when data source fails', async () => {
+    const failingSource = vi.fn(() => {
+      throw new Error('Failed to fetch library');
+    });
+
+    render(<App dataSource={failingSource} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/加载歌曲数据失败/)).toBeInTheDocument();
+    }, { timeout: 2000 });
+
+    expect(screen.getByText('Failed to fetch library')).toBeInTheDocument();
+  });
+
+  it('ignoreAlbumGrouping, search, sort work together with unified loader data', async () => {
+    render(<App dataSource={() => appTestSongs} />);
+    await waitFor(() => {
+      expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    }, { timeout: 2000 });
+
+    act(() => {
+      useLibraryStore.getState().setIgnoreAlbumGrouping(true);
+      useLibraryStore.getState().setSearchQuery('App Test Song');
+      useLibraryStore.getState().setSortField('duration');
+      useLibraryStore.getState().setSortDirection('desc');
+    });
+
+    const artistA = screen.getByTestId('tree-node-artist:App Artist A');
+    fireEvent.click(within(artistA).getByText('App Artist A'));
+
+    expect(screen.queryByTestId('tree-node-album:App Artist A/App Album X')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tree-node-song-flat:App Artist A/app2')).toBeInTheDocument();
+    expect(screen.getByTestId('tree-node-song-flat:App Artist A/app1')).toBeInTheDocument();
+
+    const songRows = screen.getAllByTestId(/^tree-node-song-flat:/);
+    expect(songRows.length).toBe(2);
+
+    act(() => {
+      useLibraryStore.getState().setIgnoreAlbumGrouping(false);
+      useLibraryStore.getState().setSearchQuery('Album Y');
+    });
+
+    expect(screen.getByTestId('tree-node-artist:App Artist B')).toBeInTheDocument();
+    expect(screen.queryByTestId('tree-node-artist:App Artist A')).not.toBeInTheDocument();
+  });
+
+  it('persisted settings do not include song data after App loads', async () => {
+    render(<App dataSource={() => appTestSongs} />);
+    await waitFor(() => {
+      expect(screen.queryByText('加载中...')).not.toBeInTheDocument();
+    }, { timeout: 2000 });
+
+    expect(useLibraryStore.getState().songs.length).toBe(3);
+
+    act(() => {
+      useLibraryStore.getState().setIgnoreAlbumGrouping(true);
+    });
+
+    await waitFor(() => {
+      const raw = localStorage.getItem('slopsmith-library-settings');
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      return (data.state?.settings?.ignoreAlbumGrouping === true) ||
+             (data.settings?.ignoreAlbumGrouping === true);
+    }, { timeout: 2000 });
+
+    const raw1 = localStorage.getItem('slopsmith-library-settings') || '';
+    const persistedAfter = JSON.parse(raw1);
+    const stateAfter = persistedAfter.state || persistedAfter;
+    expect(stateAfter.settings.ignoreAlbumGrouping).toBe(true);
+    expect(stateAfter.songs).toBeUndefined();
+    expect(raw1).not.toContain('appTestSongs');
+    expect(raw1).not.toContain('App Album X');
+
+    act(() => {
+      useLibraryStore.getState().setIgnoreAlbumGrouping(false);
+    });
+
+    await waitFor(() => {
+      const raw = localStorage.getItem('slopsmith-library-settings');
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      return (data.state?.settings?.ignoreAlbumGrouping === false) ||
+             (data.settings?.ignoreAlbumGrouping === false);
+    }, { timeout: 2000 });
+
+    const raw2 = localStorage.getItem('slopsmith-library-settings') || '';
+    const persistedFinal = JSON.parse(raw2);
+    const stateFinal = persistedFinal.state || persistedFinal;
+    expect(stateFinal.settings.ignoreAlbumGrouping).toBe(false);
+    expect(stateFinal.songs).toBeUndefined();
   });
 });

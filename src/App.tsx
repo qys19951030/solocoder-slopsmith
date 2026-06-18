@@ -5,18 +5,44 @@ import { SearchBar } from './components/SearchBar';
 import { TreeView } from './components/TreeView';
 import { ListView } from './components/ListView';
 import { SongDetail } from './components/SongDetail';
-import { sampleSongs } from './data/songs';
+import { loadSongs, type SongDataSource } from './data/songLoader';
 import type { Song } from './types';
 
-function App() {
+interface AppProps {
+  dataSource?: SongDataSource;
+}
+
+function App({ dataSource }: AppProps) {
   const { settings, getSortedFilteredSongs, getTree, setSongs } = useLibraryStore();
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
 
   useEffect(() => {
-    setSongs(sampleSongs);
-    setIsLoading(false);
-  }, [setSongs]);
+    let cancelled = false;
+
+    const init = async () => {
+      try {
+        const songs = await loadSongs(dataSource);
+        if (!cancelled) {
+          setSongs(songs);
+          setIsLoading(false);
+          setLoadError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err : new Error(String(err)));
+          setIsLoading(false);
+        }
+      }
+    };
+
+    init();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dataSource, setSongs]);
 
   const totalSongs = useLibraryStore((state) => state.songs.length);
   const filteredSongs = getSortedFilteredSongs().length;
@@ -30,6 +56,20 @@ function App() {
           <h1 style={h1Style}>🎵 SlopSmith 音乐库</h1>
         </header>
         <p>加载中...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={appStyle}>
+        <header style={headerStyle}>
+          <h1 style={h1Style}>🎵 SlopSmith 音乐库</h1>
+        </header>
+        <div style={{ padding: '24px', backgroundColor: '#fee', border: '1px solid #fcc', borderRadius: '8px' }}>
+          <h3 style={{ color: '#c33', marginTop: 0 }}>加载歌曲数据失败</h3>
+          <p style={{ color: '#633' }}>{loadError.message}</p>
+        </div>
       </div>
     );
   }

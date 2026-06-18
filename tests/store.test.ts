@@ -74,7 +74,7 @@ describe('useLibraryStore', () => {
     });
 
     it('should clear expanded nodes when data changes to prevent key collisions', () => {
-      const { setSongs, toggleNode, getTree, expandAll } = useLibraryStore.getState();
+      const { setSongs, expandAll } = useLibraryStore.getState();
 
       setSongs(externalSongs);
       expandAll();
@@ -101,7 +101,7 @@ describe('useLibraryStore', () => {
     });
 
     it('should create a copy of the input array (not reference)', () => {
-      const { setSongs, songs } = useLibraryStore.getState();
+      const { setSongs } = useLibraryStore.getState();
       const input = [...externalSongs];
 
       setSongs(input);
