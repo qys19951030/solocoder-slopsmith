@@ -1,20 +1,38 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLibraryStore } from './store/useLibraryStore';
 import { SettingsPanel } from './components/SettingsPanel';
 import { SearchBar } from './components/SearchBar';
 import { TreeView } from './components/TreeView';
 import { ListView } from './components/ListView';
 import { SongDetail } from './components/SongDetail';
+import { sampleSongs } from './data/songs';
 import type { Song } from './types';
 
 function App() {
-  const { settings, getSortedFilteredSongs, getTree } = useLibraryStore();
+  const { settings, getSortedFilteredSongs, getTree, setSongs } = useLibraryStore();
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setSongs(sampleSongs);
+    setIsLoading(false);
+  }, [setSongs]);
 
   const totalSongs = useLibraryStore((state) => state.songs.length);
   const filteredSongs = getSortedFilteredSongs().length;
   const tree = getTree();
   const artistCount = tree.length;
+
+  if (isLoading) {
+    return (
+      <div style={appStyle}>
+        <header style={headerStyle}>
+          <h1 style={h1Style}>🎵 SlopSmith 音乐库</h1>
+        </header>
+        <p>加载中...</p>
+      </div>
+    );
+  }
 
   return (
     <div style={appStyle}>

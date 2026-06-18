@@ -8,7 +8,6 @@ import type {
   SortDirection,
   TreeNode,
 } from '../types';
-import { sampleSongs } from '../data/songs';
 import { buildLibraryTree } from '../utils/tree';
 import { sortSongs, filterSongs } from '../utils/sortFilter';
 
@@ -18,6 +17,7 @@ interface LibraryState {
   searchQuery: string;
   expandedNodes: Set<string>;
 
+  setSongs: (songs: Song[]) => void;
   setViewMode: (mode: LibraryViewMode) => void;
   setSortField: (field: SortField) => void;
   setSortDirection: (dir: SortDirection) => void;
@@ -43,10 +43,16 @@ const defaultSettings: LibrarySettings = {
 export const useLibraryStore = create<LibraryState>()(
   persist(
     (set, get) => ({
-      songs: sampleSongs,
+      songs: [],
       settings: defaultSettings,
       searchQuery: '',
       expandedNodes: new Set<string>(),
+
+      setSongs: (songs) =>
+        set({
+          songs: [...songs],
+          expandedNodes: new Set<string>(),
+        }),
 
       setViewMode: (mode) =>
         set((state) => ({
@@ -138,13 +144,13 @@ export const useLibraryStore = create<LibraryState>()(
               const songNodes = node.children.filter(
                 (n): n is TreeNode & { song: Song } => n.type === 'song' && !!n.song
               );
-              const sortedSongs = sortSongs(
+              const sortedSongsList = sortSongs(
                 songNodes.map((n) => n.song),
                 settings.sortField,
                 settings.sortDirection
               );
               const songMap = new Map(songNodes.map((n) => [n.song.id, n]));
-              sortedChildren = sortedSongs
+              sortedChildren = sortedSongsList
                 .map((s) => songMap.get(s.id))
                 .filter((n): n is TreeNode & { song: Song } => !!n);
             } else {
